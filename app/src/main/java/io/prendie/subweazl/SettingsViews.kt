@@ -28,6 +28,7 @@ fun SettingsView(
     navigate: (String) -> Unit,
     connect: (Account?) -> Unit,
 ) {
+    val tvMode = LocalTvMode.current
     val accounts by repo.accounts.collectAsStateWithLifecycle()
     val active by repo.active.collectAsStateWithLifecycle()
     val offline by repo.offline.collectAsStateWithLifecycle()
@@ -42,7 +43,7 @@ fun SettingsView(
         Heading("Settings")
         Text("Connection", color = Weazl.cyan, fontWeight = FontWeight.Bold)
         Text(active?.name.orEmpty(), fontWeight = FontWeight.SemiBold)
-        Toggle("Offline mode", offline) {
+        if (!tvMode || offline) Toggle("Offline mode", offline) {
             repo.setSetting("offline", it.toString())
             if (!it) repo.action { sync() }
         }
@@ -54,7 +55,7 @@ fun SettingsView(
         Text("Accounts", color = Weazl.cyan, fontWeight = FontWeight.Bold)
         accounts.forEach { a ->
             Column {
-                TextButton({
+                FocusTextButton({
                     repo.action {
                         activate(a)
                         sync()
@@ -83,12 +84,12 @@ fun SettingsView(
             }
         }
         if (active?.serverType == "navidrome")
-            Text("Navidrome connected. Enhanced radio, Flight Recorder and Mood require WeazlMusic.", color = Weazl.muted)
+            Text(if (tvMode) "Navidrome connected. Radio and Mood require WeazlMusic." else "Navidrome connected. Enhanced radio, Flight Recorder and Mood require WeazlMusic.", color = Weazl.muted)
         Text("Listening", color = Weazl.cyan, fontWeight = FontWeight.Bold)
-        listOf("Queue", "Downloads", "Changes needing review", "Mood & curator").filter { it != "Mood & curator" || active?.serverType != "navidrome" }.forEach { title ->
+        listOf("Queue", "Downloads", "Changes needing review", "Mood & curator").filter { (!tvMode || it != "Downloads") && (it != "Mood & curator" || active?.serverType != "navidrome") }.forEach { title ->
             Action(title) { navigate(title) }
         }
-        Toggle("Downloads on Wi-Fi only", repo.setting("wifiOnly", "true").toBoolean()) {
+        if (!tvMode) Toggle("Downloads on Wi-Fi only", repo.setting("wifiOnly", "true").toBoolean()) {
             repo.setSetting("wifiOnly", it.toString())
         }
         Text("Audio quality", color = Weazl.cyan, fontWeight = FontWeight.Bold)
@@ -99,10 +100,11 @@ fun SettingsView(
                 "Cellular streaming" to "cellularQuality",
                 "Saved music" to "downloadQuality",
             )
+            .filter { !tvMode || it.second == "wifiQuality" }
             .forEach { (label, key) ->
                 var expanded by remember { mutableStateOf(false) }
                 Box {
-                    Action("$label: ${repo.setting(key,"original")}") { expanded = true }
+                    Action("${if (tvMode) "Streaming" else label}: ${repo.setting(key,"original")}") { expanded = true }
                     DropdownMenu(expanded, { expanded = false }) {
                         profiles.forEach { p ->
                             DropdownMenuItem(
@@ -117,6 +119,7 @@ fun SettingsView(
                 }
             }
         Text("Storage", color = Weazl.cyan, fontWeight = FontWeight.Bold)
+        if (!tvMode) {
         Action("Audio limit: ${repo.setting("budgetGiB","8")} GiB") {
             val choices = listOf("1", "2", "4", "8", "16")
             repo.setSetting(
@@ -128,6 +131,7 @@ fun SettingsView(
             "Saved: ${android.text.format.Formatter.formatFileSize(repo.context,savedDownloads.sumOf { it.optLong("bytes") })}",
             color = Weazl.muted,
         )
+        }
         Action("Clear temporary audio") {
             if (controller?.isPlaying == true)
                 repo.message.value = "Pause playback before clearing temporary audio."
@@ -148,7 +152,8 @@ fun SettingsView(
             }
         )
         Text(
-            "Android Auto uses the same library, queue, and saved recordings. Sign in here before connecting to your car.",
+            if (LocalTvMode.current) "Use the remote to browse and select music. Home leaves playback running; the media buttons control playback."
+            else "Android Auto uses the same library, queue, and saved recordings. Sign in here before connecting to your car.",
             fontSize = 12.sp,
             color = Weazl.muted,
         )
@@ -338,14 +343,14 @@ fun MoodView(repo: Repository) {
                     }
                 }
         }
-        items(models) { m -> TextButton({ model = m }) { Text(m) } }
+        items(models) { m -> FocusTextButton({ model = m }) { Text(m) } }
         item {
             Text("Generate a playlist", color = Weazl.cyan)
             Field("Find a seed song", query, { query = it })
             seed?.let { Text("Seed: ${it.title} · ${it.artist}", color = Weazl.amber) }
         }
         items(results, key = { it.id }) { t ->
-            TextButton({
+            FocusTextButton({
                 seed = t
                 query = ""
             }) {

@@ -28,13 +28,14 @@ import kotlinx.coroutines.guava.future
 import org.json.JSONArray
 import org.json.JSONObject
 
-fun folder(id: String, title: String, subtitle: String = "") =
+fun folder(id: String, title: String, subtitle: String = "", artwork: Uri? = null) =
     MediaItem.Builder()
         .setMediaId(id)
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(title)
                 .setSubtitle(subtitle)
+                .setArtworkUri(artwork)
                 .setIsBrowsable(true)
                 .setIsPlayable(false)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
@@ -52,6 +53,70 @@ class MediaCatalog(private val repo: Repository) {
                     MediaConstants.DESCRIPTION_EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM)
             }).build()).build()
     }
+    private fun playlist(p: JSONObject): MediaItem {
+        val cover = p.str("coverId").ifBlank { p.str("coverArt") }.ifBlank {
+            repo.catalog.value.playlistTracks(p.str("id")).firstOrNull { it.coverId.isNotBlank() }?.coverId.orEmpty()
+        }
+        val art = repo.active.value?.key?.takeIf { cover.isNotBlank() }?.let {
+            artworkUri(it, cover).buildUpon().appendQueryParameter("fallback", "playlist").build()
+        } ?: autoIconUri("playlist")
+        val base = folder("playlist:${p.str("id")}", p.str("name"))
+        return base.buildUpon().setMediaMetadata(base.mediaMetadata.buildUpon()
+            .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST).setArtworkUri(art).build()).build()
+    }
+
+    fun dropTheNeedle(): MediaItem = MediaItem.Builder().setMediaId("drop-the-needle")
+        .setMediaMetadata(MediaMetadata.Builder().setTitle("Drop the Needle")
+            .setSubtitle("A fresh mix · up to 40 tracks")
+            .setArtworkUri(autoIconUri("needle"))
+            .setIsBrowsable(false).setIsPlayable(true)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST).build()).build()
+
+    // Encode the playlist and occurrence in the ID: legacy Auto clients return only this ID.
+    // Playback still uses canonical track IDs so history, downloads and queue persistence agree.
+    private fun playlistEntry(p: JSONObject, index: Int, entry: JSONObject): MediaItem {
+        val t = Track.parse(entry.getJSONObject("track"))
+        val id = listOf("playlist-entry", Uri.encode(p.str("id")), index.toString(),
+            Uri.encode(entry.str("id")), Uri.encode(t.id)).joinToString(":")
+        return track(t).buildUpon().setMediaId(id).build()
+    }
+
+    private fun playlistSelection(id: String): Pair<List<Track>, Int> {
+        val parts = id.split(':', limit = 5)
+        if (parts.size != 5) throw VoiceSearchFailure("This playlist selection is unavailable. Reopen the playlist.")
+        val p = repo.catalog.value.playlists.firstOrNull { it.str("id") == Uri.decode(parts[1]) }
+            ?: throw VoiceSearchFailure("This playlist is no longer available. Refresh your library.")
+        val entries = p.rows("entries")
+        val entryId = Uri.decode(parts[3])
+        val index = if (entryId.isNotBlank()) entries.indexOfFirst { it.str("id") == entryId }
+            else parts[2].toIntOrNull() ?: -1
+        val tracks = entries.map { Track.parse(it.getJSONObject("track")) }
+        if (tracks.getOrNull(index)?.id != Uri.decode(parts[4]))
+            throw VoiceSearchFailure("This playlist has changed. Reopen it and choose a song.")
+        return tracks to index
+    }
+
+    fun collectionQueue(id: String): MediaSession.MediaItemsWithStartPosition? {
+        val selection = when {
+            id == "drop-the-needle" -> {
+                val tracks = repo.catalog.value.tracks.distinctBy { it.id }
+                    .filter { !repo.offline.value || repo.savedTrack(it) != null }.shuffled().take(40)
+                if (tracks.isEmpty()) throw VoiceSearchFailure(if (repo.offline.value)
+                    "Save some songs before using Drop the Needle offline." else "Sync your library to discover tracks.")
+                tracks to 0
+            }
+            id.startsWith("playlist-entry:") -> playlistSelection(id)
+            id.startsWith("playlist:") -> repo.catalog.value.playlistTracks(id.substringAfter(':')) to 0
+            else -> return null
+        }
+        val (tracks, selected) = selection
+        if (tracks.isEmpty()) throw VoiceSearchFailure("This playlist is empty.")
+        val available = tracks.withIndex().filter { !repo.offline.value || repo.savedTrack(it.value) != null }
+        val start = available.indexOfFirst { it.index == selected }
+        if (start < 0) throw VoiceSearchFailure("This song is not saved offline.")
+        return MediaSession.MediaItemsWithStartPosition(available.map { track(it.value) }, start, 0)
+    }
+
     private fun group(item: MediaItem, title: String): MediaItem = item.buildUpon()
         .setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(Bundle(item.mediaMetadata.extras ?: Bundle()).apply {
             putString(MediaConstants.DESCRIPTION_EXTRAS_KEY_CONTENT_STYLE_GROUP_TITLE, title)
@@ -69,7 +134,7 @@ class MediaCatalog(private val repo: Repository) {
         // Stable for a browsing session, rotated daily, so paging cannot duplicate/skip items.
         val random = c.albums.shuffled(kotlin.random.Random((System.currentTimeMillis() / 86400000).toInt()))
             .take(8).map { group(album(it), "Random albums") }
-        return recent + newest + random
+        return listOf(group(dropTheNeedle(), "Discover")) + recent + newest + random
     }
 
     private var voiceSnapshot: Catalog? = null
@@ -197,7 +262,7 @@ class MediaCatalog(private val repo: Repository) {
                     folder("artists", "Artists"),
                     folder("tracks", "Songs"),
                     folder("favorites", "Favorites"),
-                    folder("playlists", "Playlists"),
+                    folder("playlists", "Playlists", artwork = autoIconUri("playlist")),
                 )
             id == "albums" ->
                 c.albums.map(::album)
@@ -205,7 +270,7 @@ class MediaCatalog(private val repo: Repository) {
             id == "tracks" -> c.tracks.map(::track)
             id == "favorites" -> c.tracks.filter { "track:${it.id}" in c.favorites }.map(::track)
             id == "playlists" ->
-                c.playlists.map { folder("playlist:${it.str("id")}", it.str("name")) }
+                c.playlists.map(::playlist)
             id == "saved" ->
                 listOf(folder("saved-music", "Saved music")) +
                     repo.flights.value
@@ -232,7 +297,8 @@ class MediaCatalog(private val repo: Repository) {
                                     ?.str("name")
                     }
                     .map(::album)
-            id.startsWith("playlist:") -> c.playlistTracks(id.substringAfter(':')).map(::track)
+            id.startsWith("playlist:") -> c.playlists.firstOrNull { it.str("id") == id.substringAfter(':') }
+                ?.let { p -> p.rows("entries").mapIndexed { index, entry -> playlistEntry(p, index, entry) } }.orEmpty()
             id.startsWith("recording:") ->
                 repo.flights.value
                     .firstOrNull { it.id == id.substringAfter(':') }
@@ -248,7 +314,12 @@ class MediaCatalog(private val repo: Repository) {
             "radio" to "Radio", "playlists" to "Playlists", "albums" to "Albums",
             "artists" to "Artists", "tracks" to "Songs", "favorites" to "Favorites",
             "saved-music" to "Saved music", "login" to "Sign in on your phone")
-        roots[id]?.let { return folder(id, it) }
+        roots[id]?.let { return folder(id, it, artwork = if (id == "playlists") autoIconUri("playlist") else null) }
+        if (id == "drop-the-needle") return dropTheNeedle()
+        if (id.startsWith("playlist-entry:")) {
+            val (tracks, index) = playlistSelection(id)
+            return track(tracks[index]).buildUpon().setMediaId(id).build()
+        }
         val key = id.substringAfter(':')
         when {
             id.startsWith("album:") -> c.albums.firstOrNull { it.str("id") == key }
@@ -256,7 +327,7 @@ class MediaCatalog(private val repo: Repository) {
             id.startsWith("artist:") -> c.artists.firstOrNull { it.str("id") == key }
                 ?.let { return folder(id, it.str("name")) }
             id.startsWith("playlist:") -> c.playlists.firstOrNull { it.str("id") == key }
-                ?.let { return folder(id, it.str("name")) }
+                ?.let { return playlist(it) }
             id.startsWith("recording:") -> repo.flights.value.firstOrNull { it.id == key }
                 ?.let { return folder(id, it.name) }
             id.startsWith("track:") || id.startsWith("radio:") || id.startsWith("flight:") ->
@@ -270,6 +341,9 @@ class MediaCatalog(private val repo: Repository) {
         if (item.requestMetadata.searchQuery != null)
             return voice(voiceRequest(item.requestMetadata.searchQuery!!, item.requestMetadata.extras))
         return when {
+            id == "drop-the-needle" -> collectionQueue(id)?.mediaItems.orEmpty()
+            id.startsWith("playlist:") -> repo.catalog.value.playlistTracks(id.substringAfter(':')).map(::track)
+            id.startsWith("playlist-entry:") -> playlistSelection(id).let { (tracks, index) -> listOf(track(tracks[index])) }
             id.startsWith("track:") ->
                 repo.catalog.value.tracks
                     .firstOrNull { it.id == id.substringAfter(':') }
@@ -1126,12 +1200,16 @@ class PlaybackService : MediaLibraryService() {
             } else null
             playbackAccount = repository.active.value?.key
             val singleTrack = searchItem == null && mediaItems.singleOrNull()?.mediaId?.startsWith("track:") == true
-            val items = resolved?.mediaItems ?: withContext(Dispatchers.Default) {
+            val collection = if (searchItem == null && mediaItems.size == 1) {
+                try { withContext(Dispatchers.IO) { catalog.collectionQueue(mediaItems.single().mediaId) } }
+                catch (e: VoiceSearchFailure) { reportVoiceFailure(session, controller, e); throw e }
+            } else null
+            val items = resolved?.mediaItems ?: collection?.mediaItems ?: withContext(Dispatchers.Default) {
                 if (singleTrack) catalog.singleTrackQueue(mediaItems.single()).orEmpty()
                 else mediaItems.flatMap(catalog::resolve)
             }
-            if (singleTrack) engine.shuffleModeEnabled = false
             applyCollectionState(items)
+            if (singleTrack || collection != null) engine.shuffleModeEnabled = false
             if (searchItem != null && !isGenericVoice(voiceRequest(searchItem.requestMetadata.searchQuery!!, searchItem.requestMetadata.extras)))
                 engine.shuffleModeEnabled = voiceWantsShuffle(voiceRequest(searchItem.requestMetadata.searchQuery!!, searchItem.requestMetadata.extras))
             val next = items.firstOrNull()?.localConfiguration?.uri
@@ -1142,7 +1220,7 @@ class PlaybackService : MediaLibraryService() {
                     next.pathSegments.firstOrNull() == current.pathSegments.firstOrNull()
             MediaSession.MediaItemsWithStartPosition(
                 items,
-                resolved?.startIndex ?: if (startIndex == C.INDEX_UNSET) 0 else startIndex,
+                resolved?.startIndex ?: collection?.startIndex ?: if (startIndex == C.INDEX_UNSET) 0 else startIndex,
                 resolved?.startPositionMs ?: if (sameFlight) engine.currentPosition
                 else if (startPositionMs == C.TIME_UNSET) 0 else startPositionMs,
             )

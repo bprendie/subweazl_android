@@ -48,6 +48,40 @@ The Google Play production listing is not yet publicly available.
 Maintainer packaging scripts use keys outside the repository; contributors do
 not need those keys. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and pull requests.
 
+## Fire TV
+
+Build a separate, sideloadable TV application with the existing Subweazl icon,
+a branded TV banner, landscape navigation rail and visible D-pad focus:
+
+```sh
+./gradlew -PfireTv=true :app:assembleDebug :app:assembleRelease
+scripts/package-firetv.sh
+adb connect <tv-ip>:5555
+adb -s <tv-ip>:5555 install -r build/outputs/Subweazl-1.3.1-firetv.apk
+adb -s <tv-ip>:5555 shell am start -n io.prendie.subweazl.tv/io.prendie.subweazl.MainActivity
+```
+
+The TV package is `io.prendie.subweazl.tv`, with separate accounts and downloads;
+the phone package remains `io.prendie.subweazl`. The packaging script signs the
+optimized APK with the local Android development certificate. API 28 or newer
+is required, including Fire OS 7 and 8. Open Subweazl from OmarchyTV or the TV's
+apps screen and connect your own WeazlMusic or Navidrome account with the remote
+and on-screen keyboard. Move between field rows with Up/Down; Select opens a
+single-field editor, and Save/Done commits it. Cancel preserves the prior value.
+Optional fields can remain blank without opening the keyboard. The remote URL,
+remote preference, device name and custom headers are under Advanced connection
+settings. Alexa's microphone key remains controlled by Fire TV.
+The playback service, queue, library, downloads and recordings are shared with
+the existing app implementation. Media play/pause and skip buttons use its
+MediaSession; Home leaves playback running. Back returns to the current section,
+then Home, then exits the app. Returning from Home does not restart playback.
+
+With the isolated fixture running, `ANDROID_SERIAL=emulator-5554 scripts/test-firetv.sh`
+checks D-pad focus/navigation, search, radio and service-backed playback on a
+landscape emulator. It refuses physical devices and restores the emulator's
+display configuration. The ordinary build and `scripts/test-emulator.sh` remain
+the phone regression checks.
+
 ## Features
 
 - Home, Library, Playlists, Search, Radio, settings, and full/mini players, using
@@ -151,3 +185,9 @@ a subsequent ordinary play request restores ordered playback.
 ## License
 
 [MIT](LICENSE), copyright 2026 Bob Prendergast.
+
+The TV home screen offers **Drop the Needle**: Select immediately replaces the
+queue with up to 40 distinct random library tracks, starts playback, and opens
+Now Playing. Smaller libraries use all available tracks. Downloads, offline
+filters, and Flight Recorder controls are omitted from TV browsing. The amber
+outline and tint show remote focus; cyan marks the current navigation section.

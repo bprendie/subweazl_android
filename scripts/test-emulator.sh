@@ -22,6 +22,9 @@ rg -q 'OK \(1 test\)' build/evidence/cold-verify.txt
 "$task_adb" shell am instrument -w -e class io.prendie.subweazl.VoiceIntegrationTest io.prendie.subweazl.test/androidx.test.runner.AndroidJUnitRunner > build/evidence/voice-integration.txt
 cat build/evidence/voice-integration.txt
 rg -q 'OK \(1 test\)' build/evidence/voice-integration.txt
+"$task_adb" shell am instrument -w -e class io.prendie.subweazl.AutoBrowseIntegrationTest io.prendie.subweazl.test/androidx.test.runner.AndroidJUnitRunner > build/evidence/auto-browse.txt
+cat build/evidence/auto-browse.txt
+rg -q 'OK \(1 test\)' build/evidence/auto-browse.txt
 "$task_adb" shell am instrument -w -e class io.prendie.subweazl.RadioGatewayIntegrationTest io.prendie.subweazl.test/androidx.test.runner.AndroidJUnitRunner > build/evidence/radio-gateway.txt
 cat build/evidence/radio-gateway.txt
 rg -q 'OK \(2 tests\)' build/evidence/radio-gateway.txt

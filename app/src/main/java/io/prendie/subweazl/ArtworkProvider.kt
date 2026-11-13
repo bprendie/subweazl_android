@@ -8,6 +8,11 @@ import android.net.Uri
 import android.os.Binder
 import android.os.ParcelFileDescriptor
 import java.io.FileNotFoundException
+import java.io.File
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 
 /** Exposes only cached artwork, read-only, to trusted system media controllers. */
 class ArtworkProvider : ContentProvider() {
@@ -21,15 +26,40 @@ class ArtworkProvider : ContentProvider() {
         }
         if (!trusted || mode != "r") throw SecurityException("Artwork is read-only for trusted media hosts")
         val parts = uri.pathSegments
+        if (parts.size == 2 && parts[0] == "icon") return openIcon(parts[1])
         if (parts.size != 2 || parts.any { !it.matches(Regex("[0-9a-f]{64}")) })
             throw FileNotFoundException("Invalid artwork")
         val file = ctx.repo.file(parts[0], "art/${parts[1]}")
+        val fallback = uri.getQueryParameter("fallback")?.takeIf { it == "playlist" }
         if (!file.exists()) {
             val cover = uri.getQueryParameter("cover") ?: throw FileNotFoundException("Artwork not cached")
-            if (hash(cover) != parts[1] || parts[0] != ctx.repo.active.value?.key || ctx.repo.offline.value)
-                throw FileNotFoundException("Artwork unavailable")
-            // Provider requests run on Binder threads, never the playback or UI thread.
-            ctx.repo.artwork(parts[0], cover) ?: throw FileNotFoundException("Artwork unavailable")
+            if (hash(cover) != parts[1]) throw FileNotFoundException("Invalid artwork")
+            if (parts[0] == ctx.repo.active.value?.key && !ctx.repo.offline.value) {
+                try { ctx.repo.artwork(parts[0], cover) }
+                catch (e: Exception) { if (fallback == null) throw FileNotFoundException("Artwork unavailable").apply { initCause(e) } }
+            }
+            if (!file.exists()) return fallback?.let(::openIcon) ?: throw FileNotFoundException("Artwork unavailable")
+        }
+        if (fallback != null) {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.path, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return openIcon(fallback)
+        }
+        return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+    }
+    @Synchronized private fun openIcon(name: String): ParcelFileDescriptor {
+        val ctx = requireNotNull(context)
+        val resource = when (name) {
+            "playlist" -> R.drawable.auto_playlist
+            "needle" -> R.drawable.auto_needle
+            else -> throw FileNotFoundException("Unknown artwork icon")
+        }
+        val file = File(ctx.cacheDir, "auto-art-$name.png")
+        if (!file.exists()) {
+            val bitmap = requireNotNull(ContextCompat.getDrawable(ctx, resource)).toBitmap(256, 256)
+            val temporary = File(file.path + ".part")
+            temporary.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            if (!temporary.renameTo(file)) throw FileNotFoundException("Unable to cache icon")
         }
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }
@@ -41,4 +71,7 @@ class ArtworkProvider : ContentProvider() {
 }
 
 fun artworkUri(account: String, coverId: String): Uri = Uri.Builder().scheme("content")
-    .authority("io.prendie.subweazl.artwork").appendPath(account).appendPath(hash(coverId)).appendQueryParameter("cover", coverId).build()
+    .authority("${BuildConfig.APPLICATION_ID}.artwork").appendPath(account).appendPath(hash(coverId)).appendQueryParameter("cover", coverId).build()
+
+fun autoIconUri(name: String): Uri = Uri.Builder().scheme("content")
+    .authority("${BuildConfig.APPLICATION_ID}.artwork").appendPath("icon").appendPath(name).build()

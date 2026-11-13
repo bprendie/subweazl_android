@@ -1,14 +1,18 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.plugin.compose") }
+val fireTv = providers.gradleProperty("fireTv").orNull == "true"
 android {
     namespace = "io.prendie.subweazl"
     compileSdk = 36
     defaultConfig {
-        applicationId = "io.prendie.subweazl"
+        applicationId = if (fireTv) "io.prendie.subweazl.tv" else "io.prendie.subweazl"
         minSdk = 28
         targetSdk = 36
         versionCode = 9
-        versionName = "1.3.1"
-        val templated = providers.gradleProperty("templatedCarUi").orNull == "true"
+        versionName = if (fireTv) "1.3.1-tv" else "1.3.1"
+        buildConfigField("boolean", "FIRE_TV", fireTv.toString())
+        manifestPlaceholders["fireTv"] = fireTv.toString()
+        manifestPlaceholders["phoneLauncher"] = (!fireTv).toString()
+        val templated = !fireTv && providers.gradleProperty("templatedCarUi").orNull == "true"
         manifestPlaceholders["templatedCarUi"] = templated.toString()
         manifestPlaceholders["carAppDescriptor"] = if (templated) "@xml/automotive_app_desc" else "@xml/automotive_media_desc"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

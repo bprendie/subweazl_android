@@ -53,7 +53,7 @@ fun RadioView(repo: Repository, controller: MediaController?, navigate: (String)
                 }
                 Action("Directory", Icons.Default.Search) { directory = !directory }
             }
-            Action("Flight Recorder", Icons.Default.Flight) { navigate("Flight Recorder") }
+            if (!LocalTvMode.current) Action("Flight Recorder", Icons.Default.Flight) { navigate("Flight Recorder") }
         }
         if (directory)
             item {
@@ -163,7 +163,7 @@ fun RadioView(repo: Repository, controller: MediaController?, navigate: (String)
                 }
             },
             confirmButton = {
-                TextButton(
+                FocusTextButton(
                     {
                         repo.action { saveStation(name, url, edit) }
                         showEditor = false
@@ -173,7 +173,7 @@ fun RadioView(repo: Repository, controller: MediaController?, navigate: (String)
                     Text("Save")
                 }
             },
-            dismissButton = { TextButton({ showEditor = false }) { Text("Cancel") } },
+            dismissButton = { FocusTextButton({ showEditor = false }) { Text("Cancel") } },
         )
     deleting?.let { s ->
         Confirm("Delete ${s.str("name")}?", { deleting = null }) {
@@ -270,7 +270,7 @@ fun QueueView(repo: Repository, controller: MediaController?) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(
                     Modifier.weight(1f)
-                        .clickable {
+                        .tvFocusOutline().clickable {
                             controller?.seekTo(index, 0)
                             controller?.play()
                         }
@@ -349,159 +349,169 @@ fun PlayerView(
     var seek by remember { mutableStateOf<Float?>(null) }
     val position = controller?.currentPosition ?: 0
     val length = (controller?.duration ?: 0).coerceAtLeast(1)
-    Form {
-        Heading("Now Playing")
-        if (item == null) Empty("Choose music or a station to play.")
-        else {
-            if (track != null) {
-                Text(track.album, color = Weazl.muted)
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Art(
-                        track.coverId,
-                        Modifier.widthIn(max = 310.dp).fillMaxWidth().aspectRatio(1f),
-                    )
-                }
+    val tvArtwork = LocalTvMode.current && track != null
+    Row(Modifier.fillMaxSize()) {
+        if (tvArtwork) {
+            Column(Modifier.width(200.dp).padding(16.dp)) {
+                Art(track!!.coverId, Modifier.fillMaxWidth().aspectRatio(1f))
+                Text(track.album, color = Weazl.muted, modifier = Modifier.padding(top = 12.dp))
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        item.mediaMetadata.title?.toString().orEmpty(),
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(item.mediaMetadata.artist?.toString().orEmpty(), color = Weazl.muted)
-                }
-                if (track != null)
-                    IconAction(
-                        "Favorite",
-                        if ("track:${track.id}" in c.favorites) Icons.Default.Favorite
-                        else Icons.Default.FavoriteBorder,
-                        Weazl.pink,
-                    ) {
-                        repo.favorite("track", track.id)
-                    }
-            }
-            if (flight != null && station != null) {
-                Text("Flight Recorder · ${flight.name}", color = Weazl.cyan)
-                if (flight.segmentAt(station.id, position) == null)
-                    Text("No recording at this time", color = Weazl.muted)
-                else
-                    station.metadata
-                        .lastOrNull { it.optLong("atMs") <= position }
-                        ?.let {
-                            Text(
-                                listOf(it.str("title"), it.str("artist"))
-                                    .filter(String::isNotBlank)
-                                    .joinToString(" · ")
-                            )
-                        }
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(flight.stations) { s ->
-                        FilterChip(
-                            s.id == station.id,
-                            {
-                                val playing = controller?.playWhenReady == true
-                                controller?.setMediaItem(MediaCatalog(repo).flight(flight, s))
-                                controller?.prepare()
-                                if (playing) controller?.play()
-                            },
-                            label = { Text(s.name) },
-                            shape = RectangleShape,
+        }
+        Form(Modifier.weight(1f)) {
+            Heading("Now Playing")
+            if (item == null) Empty("Choose music or a station to play.")
+            else {
+                if (track != null && !tvArtwork) {
+                    Text(track.album, color = Weazl.muted)
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Art(
+                            track.coverId,
+                            Modifier.widthIn(max = 310.dp).fillMaxWidth().aspectRatio(1f),
                         )
                     }
                 }
-            }
-            if (!id.startsWith("radio:")) {
-                Slider(
-                    value = seek ?: position.toFloat().coerceIn(0f, length.toFloat()),
-                    onValueChange = { seek = it },
-                    onValueChangeFinished = {
-                        controller?.seekTo(seek?.toLong() ?: position)
-                        seek = null
-                    },
-                    valueRange = 0f..length.toFloat(),
-                )
-                Row {
-                    Text(duration(position))
-                    Spacer(Modifier.weight(1f))
-                    Text(duration(length))
-                }
-            }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconAction(
-                    "Shuffle",
-                    Icons.Default.Shuffle,
-                    if (controller?.shuffleModeEnabled == true) Weazl.amber else Weazl.muted,
-                ) {
-                    controller?.shuffleModeEnabled = !(controller?.shuffleModeEnabled ?: false)
-                }
-                IconAction("Previous", Icons.Default.SkipPrevious) { controller?.seekToPrevious() }
-                Button(
-                    {
-                        if (controller?.playWhenReady == true) controller.pause()
-                        else {
-                            controller?.prepare()
-                            controller?.play()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            item.mediaMetadata.title?.toString().orEmpty(),
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(item.mediaMetadata.artist?.toString().orEmpty(), color = Weazl.muted)
+                    }
+                    if (track != null)
+                        IconAction(
+                            "Favorite",
+                            if ("track:${track.id}" in c.favorites) Icons.Default.Favorite
+                            else Icons.Default.FavoriteBorder,
+                            Weazl.pink,
+                        ) {
+                            repo.favorite("track", track.id)
                         }
-                    },
-                    shape = RectangleShape,
-                    modifier = Modifier.size(64.dp),
-                    contentPadding = PaddingValues(0.dp),
-                ) {
-                    Icon(
-                        if (controller?.playWhenReady == true) Icons.Default.Pause
-                        else Icons.Default.PlayArrow,
-                        if (controller?.playWhenReady == true) "Pause" else "Play",
-                        Modifier.size(32.dp),
-                    )
                 }
-                IconAction("Next", Icons.Default.SkipNext) { controller?.seekToNext() }
-                IconAction(
-                    "Repeat",
-                    if (controller?.repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne
-                    else Icons.Default.Repeat,
-                    if (controller?.repeatMode == Player.REPEAT_MODE_OFF) Weazl.muted
-                    else Weazl.amber,
-                ) {
-                    controller?.repeatMode = ((controller?.repeatMode ?: 0) + 1) % 3
-                }
-            }
-            if (controller?.playbackState == Player.STATE_BUFFERING)
-                Text("Buffering…", color = Weazl.muted)
-            if (controller?.playerError != null) {
-                Text(
-                    "Playback unavailable. Check your connection or choose saved music.",
-                    color = Weazl.pink,
-                )
-                Action("Play next saved") {
-                    val found =
-                        ((controller.currentMediaItemIndex + 1) until controller.mediaItemCount)
-                            .firstOrNull { i ->
-                                c.tracks
-                                    .firstOrNull {
-                                        controller.getMediaItemAt(i).mediaId == "track:${it.id}"
-                                    }
-                                    ?.let { repo.savedTrack(it) != null } == true
+                if (flight != null && station != null) {
+                    Text("Flight Recorder · ${flight.name}", color = Weazl.cyan)
+                    if (flight.segmentAt(station.id, position) == null)
+                        Text("No recording at this time", color = Weazl.muted)
+                    else
+                        station.metadata
+                            .lastOrNull { it.optLong("atMs") <= position }
+                            ?.let {
+                                Text(
+                                    listOf(it.str("title"), it.str("artist"))
+                                        .filter(String::isNotBlank)
+                                        .joinToString(" · ")
+                                )
                             }
-                    found?.let {
-                        controller.seekTo(it, 0)
-                        controller.prepare()
-                        controller.play()
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(flight.stations) { s ->
+                            FocusFilterChip(
+                                s.id == station.id,
+                                {
+                                    val playing = controller?.playWhenReady == true
+                                    controller?.setMediaItem(MediaCatalog(repo).flight(flight, s))
+                                    controller?.prepare()
+                                    if (playing) controller?.play()
+                                },
+                                label = { Text(s.name) },
+                                shape = RectangleShape,
+                            )
+                        }
                     }
                 }
-            }
-            Action("Queue", Icons.AutoMirrored.Filled.QueueMusic) { navigate("Queue") }
-            if (!id.startsWith("track:"))
-                Action("Resume library") {
-                    controller?.sendCustomCommand(
-                        SessionCommand("resume-library", Bundle.EMPTY),
-                        Bundle.EMPTY,
+                if (!id.startsWith("radio:")) {
+                    Slider(
+                        modifier = Modifier.tvFocusOutline(),
+                        value = seek ?: position.toFloat().coerceIn(0f, length.toFloat()),
+                        onValueChange = { seek = it },
+                        onValueChangeFinished = {
+                            controller?.seekTo(seek?.toLong() ?: position)
+                            seek = null
+                        },
+                        valueRange = 0f..length.toFloat(),
                     )
+                    Row {
+                        Text(duration(position))
+                        Spacer(Modifier.weight(1f))
+                        Text(duration(length))
+                    }
                 }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconAction(
+                        "Shuffle",
+                        Icons.Default.Shuffle,
+                        if (controller?.shuffleModeEnabled == true) Weazl.amber else Weazl.muted,
+                    ) {
+                        controller?.shuffleModeEnabled = !(controller?.shuffleModeEnabled ?: false)
+                    }
+                    IconAction("Previous", Icons.Default.SkipPrevious) { controller?.seekToPrevious() }
+                    Button(
+                        {
+                            if (controller?.playWhenReady == true) controller.pause()
+                            else {
+                                controller?.prepare()
+                                controller?.play()
+                            }
+                        },
+                        shape = RectangleShape,
+                        modifier = Modifier.size(64.dp).tvFocusOutline(),
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
+                        Icon(
+                            if (controller?.playWhenReady == true) Icons.Default.Pause
+                            else Icons.Default.PlayArrow,
+                            if (controller?.playWhenReady == true) "Pause" else "Play",
+                            Modifier.size(32.dp),
+                        )
+                    }
+                    IconAction("Next", Icons.Default.SkipNext) { controller?.seekToNext() }
+                    IconAction(
+                        "Repeat",
+                        if (controller?.repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne
+                        else Icons.Default.Repeat,
+                        if (controller?.repeatMode == Player.REPEAT_MODE_OFF) Weazl.muted
+                        else Weazl.amber,
+                    ) {
+                        controller?.repeatMode = ((controller?.repeatMode ?: 0) + 1) % 3
+                    }
+                }
+                if (controller?.playbackState == Player.STATE_BUFFERING)
+                    Text("Buffering…", color = Weazl.muted)
+                if (controller?.playerError != null) {
+                    Text(
+                        "Playback unavailable. Check your connection or choose saved music.",
+                        color = Weazl.pink,
+                    )
+                    Action("Play next saved") {
+                        val found =
+                            ((controller.currentMediaItemIndex + 1) until controller.mediaItemCount)
+                                .firstOrNull { i ->
+                                    c.tracks
+                                        .firstOrNull {
+                                            controller.getMediaItemAt(i).mediaId == "track:${it.id}"
+                                        }
+                                        ?.let { repo.savedTrack(it) != null } == true
+                                }
+                        found?.let {
+                            controller.seekTo(it, 0)
+                            controller.prepare()
+                            controller.play()
+                        }
+                    }
+                }
+                Action("Queue", Icons.AutoMirrored.Filled.QueueMusic) { navigate("Queue") }
+                if (!id.startsWith("track:"))
+                    Action("Resume library") {
+                        controller?.sendCustomCommand(
+                            SessionCommand("resume-library", Bundle.EMPTY),
+                            Bundle.EMPTY,
+                        )
+                    }
+            }
         }
     }
 }
@@ -886,7 +896,7 @@ fun FlightEditor(repo: Repository, editing: JSONObject?, done: () -> Unit) {
                 )
             },
             confirmButton = {
-                TextButton({
+                FocusTextButton({
                     busy = true
                     preview = null
                     scope.launch {
@@ -935,7 +945,7 @@ fun FlightEditor(repo: Repository, editing: JSONObject?, done: () -> Unit) {
                     Text("Confirm")
                 }
             },
-            dismissButton = { TextButton({ preview = null }) { Text("Back") } },
+            dismissButton = { FocusTextButton({ preview = null }) { Text("Back") } },
         )
     }
 }

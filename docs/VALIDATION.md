@@ -88,6 +88,37 @@ app-signing certificate, so it cannot replace this install in place. Changing
 between those distributions may require uninstalling and removes local app data.
 Public Google Play production availability is not established by these checks.
 
+## Fire TV build
+
+Validated November 1, 2026: `1.3.1-tv` (`io.prendie.subweazl.tv`, version code 9).
+The phone and TV packages can coexist; their artwork provider authorities and
+account/download storage are separate. The TV uses the same PlaybackService.
+
+- TV debug and optimized release builds, the 29 unit tests and lint passed with
+  `-PfireTv=true`. `scripts/package-firetv.sh` produced and verified a development-
+  signed optimized APK, about 8 MB, under ignored `build/outputs`.
+- `TvNavigationTest` passed on a landscape emulator with the isolated fixture:
+  D-pad navigation between the rail and content, search, radio, Settings/Back,
+  player Select-to-pause, and playback remaining ready after Home.
+- After physical feedback about the credential keyboard, `TvCredentialFormTest`
+  also passed: D-pad navigation skips blank fields without starting text input,
+  optional settings expand explicitly, Save/Done returns focus to the edited row,
+  and Cancel discards only the local draft. TV fields now open a single-field
+  editor only on Select; switches are one full-width remote focus target.
+- The ordinary phone debug/release builds, unit tests, lint and full
+  `scripts/test-emulator.sh` suite passed after the TV changes. This includes
+  integration/UI, cold-process restoration, voice and radio gateway checks.
+- The optimized TV APK installed and launched on `AFTDCT31` (32-bit ARM),
+  Fire OS 7.7.1.7 / Android 9 / API 28, at `10.0.0.51`. The original Subweazl
+  icon and branded TV banner are included; the sign-in form renders and opens
+  Fire TV's remote keyboard. OmarchyTV's dock configuration places Subweazl
+  third after YouTube and Jellyfin.
+
+Evidence is in ignored `build/evidence/tv`, with build/test logs under `build`.
+Physical-device checks establish installation, rendering and keyboard access;
+server sign-in, audible playback and extended remote use still require user
+acceptance. No personal server credentials or libraries were embedded or copied.
+
 ## References
 
 - [MediaLibraryService](https://developer.android.com/media/media3/session/serve-content)
@@ -95,3 +126,81 @@ Public Google Play production availability is not established by these checks.
 - [Car testing](https://developer.android.com/training/cars/testing)
 - [Navidrome supported API](https://www.navidrome.org/docs/developers/subsonic-api/)
 - [Subsonic API](https://www.subsonic.org/pages/api.jsp)
+
+### TV listening and navigation pass — 2026-11-01
+
+- Home replaces the Flight Recorder card with Drop the Needle on TV. It replaces
+  the shared MediaController queue with up to 40 distinct shuffled library tracks,
+  disables secondary shuffle ordering, starts playback, and opens Now Playing.
+- TV navigation omits Downloads; library, album/playlist, track menus, Radio,
+  and Settings omit download/recording entry points. Phone features remain.
+- Focus uses a 3 dp amber outline and tinted surface, separate from the cyan
+  selected navigation item. Explicit rail Up/Down ordering prevents jumps into
+  content. Track artwork/title share one TV playback focus target.
+- Updated TvNavigationTest checks hidden TV controls and uses Drop the Needle
+  to start playback, verifies the distinct queue count (including the fixture's
+  smaller library), Now Playing, pause, and background service playback.
+- Final checks: TV instrumented suite passed (2 tests); TV unit tests and lint
+  passed. Phone fixture integration/UI, cold-start, voice, and radio checks all
+  passed; phone unit tests, lint, and release build passed.
+- Signed optimized APK installed in place on AFTDCT31 (Fire OS 7 / API 28).
+  On-device screenshots confirm the revised rail, distinct focus/selection
+  treatments, and larger content targets. Existing signed-in account retained.
+  Playback behavior was asserted on the fixture; no audible hardware claim.
+
+### Phone Home: Drop the Needle — 2026-11-01
+
+- Home now offers Drop the Needle for WeazlMusic and direct Navidrome libraries.
+  Like the web random-listening action, it replaces the queue and starts music;
+  Android selects up to 40 distinct tracks from the synced catalog. Smaller
+  libraries yield shorter queues. Offline mode uses only saved tracks.
+- Track selection runs off the main thread; MediaController commands return to
+  the main thread. Account/offline-mode changes during selection cancel the
+  action. Playback continues to use the existing PlaybackService and session.
+- Flight Recorder's phone Home card is removed; its existing Radio entry remains.
+  Phone Now Playing returns to Home with Back. The TV Home action is retained.
+- Debug/release builds, unit tests, lint and the full isolated phone emulator
+  suite passed. The UI test now taps the button and verifies playing state,
+  distinct queue size, shuffle ordering, Back, and Radio → Flight Recorder.
+- The optimized development-signed preview installed in place on the connected
+  Pixel and launched successfully. User account data was retained; no production
+  playback or new physical head-unit acceptance was performed by these tests.
+- The isolated TV credential/navigation suite also passed (2 tests), including
+  Drop the Needle playback and its shared queue. TV unit tests and lint passed.
+
+### Android Auto playlists and Drop the Needle — 2026-11-13
+
+- Playlist browse rows encode the playlist and entry occurrence in their media
+  IDs. A legacy play-from-ID request now loads the whole playlist, starts at the
+  tapped occurrence, and preserves order and duplicates. Standalone search/song
+  requests retain the existing related-track continuation. Actual playback uses
+  canonical track IDs in the same PlaybackService queue.
+- Playlist folders expose cover artwork (explicit playlist cover or a contained
+  track's cover), with a local playlist icon if unavailable. The Playlists entry
+  and Drop the Needle tile also have local icons served through ArtworkProvider.
+- Android Auto Home includes a playable Drop the Needle tile: up to 40 distinct
+  random library tracks, or saved tracks in offline mode, with shuffle ordering
+  disabled after choosing the mix.
+- Synthwave troubleshooting was initially deferred. A direct GET from the Mac
+  returned HTTP 200/audio-mpeg and received live audio bytes. The user subsequently
+  confirmed Synthwave works in the app, closing the reported playback issue.
+  The underlying cause of the earlier failure was not established.
+- Debug/release builds, 29 unit tests and lint passed. AutoBrowseIntegrationTest
+  passed through MediaBrowser and legacy MediaControllerCompat: every playlist
+  position, duplicate occurrences, skip/previous, stale-entry rejection,
+  decodable artwork/fallback icons, Drop the Needle playback, 40-track cap and
+  offline-empty handling. The integration/UI, both cold-start checks, voice,
+  and radio gateway tests also passed.
+- Test environment limitations: a shared Gradle daemon was stopped externally;
+  the build succeeded with a single-use daemon. The shared emulator initially
+  timed out during UI setup; a clean Subweazl launch passed. A separate headless
+  API 37 emulator crashed during boot. On the existing emulator the final broad
+  run passed integration/UI, cold-start and voice, then hit ENETUNREACH during
+  Auto test login. Auto plus both radio gateway tests passed on retry (3 tests).
+  No application/server failure was replaced with sample data.
+- Evidence: ignored build/auto-nov13-*.log, build/evidence/auto-browse.txt and
+  build/evidence/auto-nov13/auto-radio-recheck.txt. An optimized development-signed
+  APK installed in place on the connected Pixel on November 13; its package
+  still exposes PlaybackService with android.media.browse.MediaBrowserService.
+  Accounts and downloaded data were retained. No DHU was available; playlist
+  artwork/layout and controls still need acceptance on the physical head unit.

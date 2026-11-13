@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
+    <uses-feature android:name="android.software.leanback" android:required="false"/>
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
@@ -7,18 +9,22 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="androidx.car.app.MEDIA_TEMPLATES"/>
-    <application android:name=".SubweazlApp" android:label="Subweazl" android:icon="@mipmap/ic_launcher" android:theme="@style/Theme.Subweazl" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="true" android:supportsRtl="true">
+    <application android:name=".SubweazlApp" android:label="Subweazl" android:icon="@mipmap/ic_launcher" android:banner="@drawable/tv_banner" android:theme="@style/Theme.Subweazl" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="true" android:supportsRtl="true">
         <meta-data android:name="com.google.android.gms.car.application" android:resource="${carAppDescriptor}"/>
         <meta-data android:name="androidx.car.app.TintableAttributionIcon" android:resource="@drawable/car_attribution"/>
         <meta-data android:name="androidx.car.app.minCarApiLevel" android:value="8"/>
-        <provider android:name=".ArtworkProvider" android:authorities="io.prendie.subweazl.artwork" android:exported="true"/>
+        <provider android:name=".ArtworkProvider" android:authorities="${applicationId}.artwork" android:exported="true"/>
         <service android:name=".SubweazlCarService" android:exported="true" android:enabled="${templatedCarUi}">
             <intent-filter><action android:name="androidx.car.app.CarAppService"/><category android:name="androidx.car.app.category.MEDIA"/></intent-filter>
         </service>
-        <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize">
-            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
-
+        <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize" android:configChanges="keyboard|keyboardHidden|navigation">
         </activity>
+        <activity-alias android:name=".PhoneLauncher" android:targetActivity=".MainActivity" android:enabled="${phoneLauncher}" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".TvLauncher" android:targetActivity=".MainActivity" android:enabled="${fireTv}" android:exported="true" android:icon="@mipmap/ic_launcher" android:banner="@drawable/tv_banner">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LEANBACK_LAUNCHER"/></intent-filter>
+        </activity-alias>
         <activity android:name=".VoicePlaybackActivity" android:exported="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" android:excludeFromRecents="true">
             <intent-filter><action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH"/><category android:name="android.intent.category.DEFAULT"/></intent-filter>

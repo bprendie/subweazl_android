@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -30,6 +31,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -73,29 +79,39 @@ class MainActivity : ComponentActivity() {
                     android.content.pm.PackageManager.PERMISSION_GRANTED
         )
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        val tvMode = BuildConfig.FIRE_TV ||
+            (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK) ==
+                android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+        if (tvMode) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
-            MaterialTheme(
-                colorScheme =
-                    darkColorScheme(
-                        primary = Weazl.amber,
-                        onPrimary = Weazl.background,
-                        secondary = Weazl.cyan,
-                        tertiary = Weazl.pink,
-                        background = Weazl.background,
-                        surface = Weazl.panel,
-                        onSurface = Weazl.ink,
-                        onBackground = Weazl.ink,
-                    ),
-                shapes =
-                    Shapes(
-                        extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
-                        small = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
-                        medium = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
-                        large = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
-                        extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
-                    ),
+            val density = LocalDensity.current
+            CompositionLocalProvider(
+                LocalTvMode provides tvMode,
+                LocalDensity provides if (tvMode) Density(density.density, density.fontScale * 1.12f) else density,
             ) {
-                Subweazl(intent.getStringExtra("query"))
+                MaterialTheme(
+                    colorScheme =
+                        darkColorScheme(
+                            primary = Weazl.amber,
+                            onPrimary = Weazl.background,
+                            secondary = Weazl.cyan,
+                            tertiary = Weazl.pink,
+                            background = Weazl.background,
+                            surface = Weazl.panel,
+                            onSurface = Weazl.ink,
+                            onBackground = Weazl.ink,
+                        ),
+                    shapes =
+                        Shapes(
+                            extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
+                            small = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
+                            medium = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
+                            large = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
+                            extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
+                        ),
+                ) {
+                    Subweazl(intent.getStringExtra("query"))
+                }
             }
         }
     }
@@ -113,6 +129,7 @@ fun Action(
         Button(
             onClick,
             enabled = enabled,
+            modifier = Modifier.tvFocusOutline(),
             shape = RectangleShape,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         ) {
@@ -126,6 +143,7 @@ fun Action(
         OutlinedButton(
             onClick,
             enabled = enabled,
+            modifier = Modifier.tvFocusOutline(),
             shape = RectangleShape,
             border = BorderStroke(1.dp, Weazl.line),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
@@ -147,7 +165,7 @@ fun IconAction(
     enabled: Boolean = true,
     click: () -> Unit,
 ) {
-    IconButton(onClick = click, enabled = enabled) {
+    IconButton(onClick = click, enabled = enabled, modifier = Modifier.tvFocusOutline()) {
         Icon(icon, label, tint = if (enabled) tint else Weazl.muted)
     }
 }
@@ -169,12 +187,16 @@ fun Empty(text: String) {
 
 @Composable
 fun Field(label: String, value: String, change: (String) -> Unit, secret: Boolean = false) {
+    if (LocalTvMode.current) {
+        TvEditableField(label, value, change, secret)
+        return
+    }
     OutlinedTextField(
         value,
         change,
         label = { Text(label) },
         singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().tvFocusOutline(),
         visualTransformation =
             if (secret) PasswordVisualTransformation()
             else androidx.compose.ui.text.input.VisualTransformation.None,
@@ -184,9 +206,9 @@ fun Field(label: String, value: String, change: (String) -> Unit, secret: Boolea
 }
 
 @Composable
-fun Form(content: @Composable ColumnScope.() -> Unit) {
+fun Form(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         content = content,
     )
@@ -194,9 +216,16 @@ fun Form(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 fun Toggle(label: String, value: Boolean, change: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    val tvMode = LocalTvMode.current
+    Row(
+        Modifier.fillMaxWidth().then(
+            if (tvMode) Modifier.tvFocusOutline().toggleable(value, role = Role.Switch, onValueChange = change)
+            else Modifier
+        ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(label, Modifier.weight(1f))
-        Switch(value, change)
+        Switch(value, if (tvMode) null else change)
     }
 }
 
@@ -251,6 +280,7 @@ fun Art(id: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun Subweazl(voiceQuery: String? = null) {
+    val tvMode = LocalTvMode.current
     val context = LocalContext.current
     val repo = context.repo
     val account by repo.active.collectAsStateWithLifecycle()
@@ -265,6 +295,8 @@ fun Subweazl(voiceQuery: String? = null) {
     var login by remember { mutableStateOf(false) }
     var editAccount by remember { mutableStateOf<Account?>(null) }
     val media = remember { MediaCatalog(repo) }
+    val homeScope = rememberCoroutineScope()
+    var startingNeedle by remember { mutableStateOf(false) }
     fun navigate(to: String) {
         screen = to
     }
@@ -332,6 +364,10 @@ fun Subweazl(voiceQuery: String? = null) {
         selection = null
     }
     BackHandler(screen != tab || login) { if (login) login = false else screen = tab }
+    BackHandler(tvMode && account != null && !login && screen == tab && tab != "Home") {
+        tab = "Home"
+        screen = "Home"
+    }
     val now = controller?.currentMediaItem
     tick.let {}
     Scaffold(
@@ -348,12 +384,12 @@ fun Subweazl(voiceQuery: String? = null) {
                 Text("SUB", fontWeight = FontWeight.Black)
                 Text("WEAZL", color = Weazl.amber, fontWeight = FontWeight.Black)
                 Spacer(Modifier.weight(1f))
-                if (account != null && !login) VoiceButton(repo)
-                OutlinedButton(
+                if (account != null && !login && !tvMode) VoiceButton(repo)
+                if (!tvMode) OutlinedButton(
                     { screen = "Settings" },
                     shape = RectangleShape,
                     contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(44.dp),
+                    modifier = Modifier.size(44.dp).tvFocusOutline().semantics { contentDescription = "Settings" },
                     border = BorderStroke(1.dp, Weazl.violet.copy(alpha = .4f)),
                 ) {
                     Text("W", color = Weazl.violet)
@@ -374,7 +410,7 @@ fun Subweazl(voiceQuery: String? = null) {
                         ) {
                             Column(
                                 Modifier.weight(1f)
-                                    .clickable { screen = "Now Playing" }
+                                    .tvFocusOutline().clickable { screen = "Now Playing" }
                                     .padding(vertical = 12.dp)
                             ) {
                                 Text(
@@ -405,7 +441,7 @@ fun Subweazl(voiceQuery: String? = null) {
                             }
                             IconAction("Next", Icons.Default.SkipNext) { controller?.seekToNext() }
                         }
-                    Row(Modifier.fillMaxWidth().border(BorderStroke(1.dp, Weazl.line))) {
+                    if (!tvMode) Row(Modifier.fillMaxWidth().border(BorderStroke(1.dp, Weazl.line))) {
                         listOf(
                                 "Home" to Icons.Default.Home,
                                 "Library" to Icons.Default.LibraryMusic,
@@ -417,7 +453,7 @@ fun Subweazl(voiceQuery: String? = null) {
                             .forEach { (name, icon) ->
                                 Column(
                                     Modifier.weight(1f)
-                                        .clickable {
+                                        .tvFocusOutline().clickable {
                                             tab = name
                                             screen = name
                                         }
@@ -441,68 +477,111 @@ fun Subweazl(voiceQuery: String? = null) {
                 }
         },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
-            if (account == null || login)
-                ConnectView(
-                    editAccount,
-                    onDone = {
-                        login = false
-                        editAccount = null
-                    },
-                    onCancel = if (account != null) ({ login = false }) else null,
-                )
-            else
-                when (screen) {
-                    "Home" -> HomeView(repo, ::play, ::openAlbum, ::navigate)
-                    "Library" -> LibraryView(repo, controller, ::play, ::openAlbum, ::navigate)
-                    "Search" ->
-                        SearchView(
-                            repo,
-                            controller,
-                            ::play,
-                            ::openAlbum,
-                            { p ->
+        Row(
+            Modifier.padding(padding).fillMaxSize()
+                .then(if (tvMode) Modifier.padding(horizontal = 24.dp, vertical = 12.dp) else Modifier)
+        ) {
+            if (tvMode && account != null && !login) {
+                TvNavigation(tab, account?.serverType == "navidrome") { name ->
+                    tab = name
+                    screen = name
+                }
+                Spacer(Modifier.width(16.dp))
+            }
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                if (account == null || login)
+                    ConnectView(
+                        editAccount,
+                        onDone = {
+                            login = false
+                            editAccount = null
+                        },
+                        onCancel = if (account != null) ({ login = false }) else null,
+                    )
+                else
+                    when (screen) {
+                        "Home" -> HomeView(repo, ::play, ::openAlbum, ::navigate) {
+                            if (!startingNeedle) homeScope.launch(Dispatchers.Main.immediate) {
+                                startingNeedle = true
+                                try {
+                                    val key = repo.active.value?.key ?: return@launch
+                                    val offline = repo.offline.value
+                                    val catalog = repo.catalog.value
+                                    val tracks = withContext(Dispatchers.IO) {
+                                        catalog.tracks.asSequence()
+                                            .distinctBy { it.id }
+                                            .filter { !offline || repo.savedTrack(it, key) != null }
+                                            .toList().shuffled().take(40)
+                                    }
+                                    if (repo.active.value?.key != key || repo.offline.value != offline) return@launch
+                                    val player = controller
+                                    if (player != null && tracks.isNotEmpty()) {
+                                        player.shuffleModeEnabled = false
+                                        player.setMediaItems(tracks.map(media::track), 0, 0)
+                                        player.prepare()
+                                        player.play()
+                                        if (tvMode) tab = "Now Playing"
+                                        screen = "Now Playing"
+                                    } else repo.message.value = when {
+                                        tracks.isEmpty() && offline -> "Save some songs before using Drop the Needle offline."
+                                        tracks.isEmpty() -> "Sync your library to discover tracks."
+                                        else -> "Player is connecting. Try again."
+                                    }
+                                } finally {
+                                    startingNeedle = false
+                                }
+                            }
+                        }
+                        "Library" -> LibraryView(repo, controller, ::play, ::openAlbum, ::navigate)
+                        "Search" ->
+                            SearchView(
+                                repo,
+                                controller,
+                                ::play,
+                                ::openAlbum,
+                                { p ->
+                                    selection = p
+                                    detailTitle = p.str("name")
+                                    detailTracks = repo.catalog.value.playlistTracks(p.str("id"))
+                                    screen = "Playlist"
+                                },
+                            )
+                        "Playlists" ->
+                            PlaylistsView(repo) { p ->
                                 selection = p
                                 detailTitle = p.str("name")
                                 detailTracks = repo.catalog.value.playlistTracks(p.str("id"))
                                 screen = "Playlist"
-                            },
-                        )
-                    "Playlists" ->
-                        PlaylistsView(repo) { p ->
-                            selection = p
-                            detailTitle = p.str("name")
-                            detailTracks = repo.catalog.value.playlistTracks(p.str("id"))
-                            screen = "Playlist"
-                        }
-                    "Album",
-                    "Playlist" ->
-                        CollectionView(
-                            repo,
-                            controller,
-                            screen,
-                            selection,
-                            detailTitle,
-                            detailTracks,
-                            ::play,
-                        ) {
-                            screen = tab
-                        }
-                    "Radio" -> RadioView(repo, controller, ::navigate)
-                    "Flight Recorder" -> FlightView(repo, controller)
-                    "Downloads" -> DownloadsView(repo, controller)
-                    "Queue" -> QueueView(repo, controller)
-                    "Now Playing" -> PlayerView(repo, controller, tick, ::navigate)
-                    "Settings" ->
-                        SettingsView(repo, controller, ::navigate) { a ->
-                            editAccount = a
-                            login = true
-                        }
-                    "Mood & curator" -> MoodView(repo)
-                    "Signed-in devices" -> DevicesView(repo)
-                    "Changes needing review" -> MutationView(repo)
-                    "About, privacy & help" -> AboutView()
-                }
+                            }
+                        "Album",
+                        "Playlist" ->
+                            CollectionView(
+                                repo,
+                                controller,
+                                screen,
+                                selection,
+                                detailTitle,
+                                detailTracks,
+                                ::play,
+                            ) {
+                                screen = tab
+                            }
+                        "Radio" -> RadioView(repo, controller, ::navigate)
+                        "Flight Recorder" -> FlightView(repo, controller)
+                        "Downloads" -> DownloadsView(repo, controller)
+                        "Queue" -> QueueView(repo, controller)
+                        "Now Playing" -> PlayerView(repo, controller, tick, ::navigate)
+                        "Settings" ->
+                            SettingsView(repo, controller, ::navigate) { a ->
+                                editAccount = a
+                                login = true
+                            }
+                        "Mood & curator" -> MoodView(repo)
+                        "Signed-in devices" -> DevicesView(repo)
+                        "Changes needing review" -> MutationView(repo)
+                        "About, privacy & help" -> AboutView()
+                    }
+            }
         }
     }
     error?.let {
@@ -510,13 +589,15 @@ fun Subweazl(voiceQuery: String? = null) {
             onDismissRequest = { repo.message.value = null },
             title = { Text("Subweazl") },
             text = { Text(it) },
-            confirmButton = { TextButton({ repo.message.value = null }) { Text("OK") } },
+            confirmButton = { FocusTextButton({ repo.message.value = null }) { Text("OK") } },
         )
     }
 }
 
 @Composable
 fun ConnectView(edit: Account?, onDone: () -> Unit, onCancel: (() -> Unit)?) {
+    val tvMode = LocalTvMode.current
+    var advanced by rememberSaveable(edit?.key) { mutableStateOf(false) }
     val repo = LocalContext.current.repo
     val scope = repo.scope
     val active by repo.active.collectAsStateWithLifecycle()
@@ -559,22 +640,35 @@ fun ConnectView(edit: Account?, onDone: () -> Unit, onCancel: (() -> Unit)?) {
                     onDone()
                 }
             }
-        Field("Account name", name, { name = it })
+        if (tvMode) Text("Choose a field with ↑/↓ and press Select to edit. Optional fields can stay blank.", color = Weazl.muted)
+        Field(if (tvMode) "Account name (optional)" else "Account name", name, { name = it })
         Field("Home URL", home, { home = it })
-        if (serverType == "weazlmusic") {
+        if (!tvMode && serverType == "weazlmusic") {
             Field("Remote URL (optional)", remote, { remote = it })
             Toggle("Prefer remote URL", prefer, { prefer = it })
         }
         Field("Username", user, { user = it })
         Field("Password", password, { password = it }, true)
-        Field("Device name", device, { device = it })
-        OutlinedTextField(
-            headers,
-            { headers = it },
-            label = { Text("Custom headers (optional)") },
-            supportingText = { Text("One Name: value per line.") },
-            modifier = Modifier.fillMaxWidth(),
-        )
+        if (tvMode) {
+            Action(if (advanced) "Hide advanced connection settings" else "Advanced connection settings") { advanced = !advanced }
+            if (advanced) {
+                if (serverType == "weazlmusic") {
+                    Field("Remote URL (optional)", remote, { remote = it })
+                    Toggle("Prefer remote URL", prefer, { prefer = it })
+                }
+                Field("Device name", device, { device = it })
+                TvEditableField("Custom headers (optional)", headers, { headers = it }, multiline = true)
+            }
+        } else {
+            Field("Device name", device, { device = it })
+            OutlinedTextField(
+                headers,
+                { headers = it },
+                label = { Text("Custom headers (optional)") },
+                supportingText = { Text("One Name: value per line.") },
+                modifier = Modifier.fillMaxWidth().tvFocusOutline(),
+            )
+        }
         if (home.startsWith("http://"))
             Text("This connection uses unencrypted HTTP.", color = Weazl.pink, fontSize = 12.sp)
         Action(
@@ -610,6 +704,7 @@ fun ConnectView(edit: Account?, onDone: () -> Unit, onCancel: (() -> Unit)?) {
 
 @Composable
 fun TrackRow(repo: Repository, track: Track, controller: MediaController?, onPlay: () -> Unit) {
+    val tvMode = LocalTvMode.current
     var menu by remember { mutableStateOf(false) }
     var add by remember { mutableStateOf(false) }
     val catalog by repo.catalog.collectAsStateWithLifecycle()
@@ -618,9 +713,11 @@ fun TrackRow(repo: Repository, track: Track, controller: MediaController?, onPla
         Modifier.fillMaxWidth().heightIn(min = 68.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Art(track.coverId, Modifier.size(44.dp))
+        Row(Modifier.weight(1f).tvFocusOutline().clickable(onClick = onPlay).padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+        Art(track.coverId, Modifier.size(if (tvMode) 52.dp else 44.dp))
         Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f).clickable(onClick = onPlay).padding(vertical = 8.dp)) {
+        Column(Modifier.weight(1f)) {
             Text(
                 track.title,
                 fontSize = 14.sp,
@@ -636,7 +733,8 @@ fun TrackRow(repo: Repository, track: Track, controller: MediaController?, onPla
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        IconAction(
+        }
+        if (!tvMode) IconAction(
             "Play ${track.title}",
             Icons.Default.PlayArrow,
             tint = Weazl.amber,
@@ -674,7 +772,7 @@ fun TrackRow(repo: Repository, track: Track, controller: MediaController?, onPla
                         menu = false
                     },
                 )
-                DropdownMenuItem(
+                if (!LocalTvMode.current) DropdownMenuItem(
                     { Text("Download offline") },
                     {
                         repo.saveTracks(listOf(track))
@@ -698,7 +796,7 @@ fun TrackRow(repo: Repository, track: Track, controller: MediaController?, onPla
             text = {
                 LazyColumn {
                     items(catalog.playlists.filter { it.optBoolean("canEdit") }) { p ->
-                        TextButton({
+                        FocusTextButton({
                             repo.action {
                                 savePlaylist(
                                     p.str("name"),
@@ -713,7 +811,7 @@ fun TrackRow(repo: Repository, track: Track, controller: MediaController?, onPla
                     }
                 }
             },
-            confirmButton = { TextButton({ add = false }) { Text("Cancel") } },
+            confirmButton = { FocusTextButton({ add = false }) { Text("Cancel") } },
         )
 }
 
@@ -729,7 +827,7 @@ fun AlbumShelf(title: String, albums: List<JSONObject>, open: (JSONObject) -> Un
     else
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(albums) { a ->
-                Column(Modifier.width(140.dp).clickable { open(a) }) {
+                Column(Modifier.width(140.dp).tvFocusOutline().clickable { open(a) }) {
                     Art(a.str("coverId"), Modifier.size(140.dp))
                     Text(
                         a.str("name"),
@@ -749,7 +847,9 @@ fun HomeView(
     play: (List<Track>, Int) -> Unit,
     album: (JSONObject) -> Unit,
     navigate: (String) -> Unit,
+    dropTheNeedle: () -> Unit,
 ) {
+    val tvMode = LocalTvMode.current
     val active by repo.active.collectAsStateWithLifecycle()
     val c by repo.catalog.collectAsStateWithLifecycle()
     val history by repo.history.collectAsStateWithLifecycle()
@@ -786,26 +886,31 @@ fun HomeView(
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Action("Shuffle library", Icons.Default.Shuffle, true, c.tracks.isNotEmpty()) {
+                if (!LocalTvMode.current) Action("Shuffle library", Icons.Default.Shuffle, true, c.tracks.isNotEmpty()) {
                     play(c.tracks.shuffled(), 0)
                 }
                 if (active?.serverType != "navidrome")
                     Action("Internet Radio", Icons.Default.Radio) { navigate("Radio") }
             }
         }
-        if (active?.serverType != "navidrome") item {
-            Row(
-                Modifier.fillMaxWidth()
-                    .background(Weazl.raised)
-                    .border(1.dp, Weazl.line)
-                    .clickable { navigate("Flight Recorder") }
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        item {
+            OutlinedButton(
+                onClick = dropTheNeedle,
+                enabled = c.tracks.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth().tvFocusOutline(),
+                shape = RectangleShape,
+                contentPadding = PaddingValues(20.dp),
             ) {
-                Icon(Icons.Default.Flight, null, tint = Weazl.cyan)
-                Spacer(Modifier.width(12.dp))
-                Text("Flight Recorder", Modifier.weight(1f))
-                Icon(Icons.Default.ChevronRight, null)
+                Icon(Icons.Default.PlayArrow, null, tint = Weazl.amber, modifier = Modifier.size(36.dp))
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Drop the Needle", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Weazl.ink)
+                    Text(when {
+                        c.tracks.isEmpty() -> "Sync your library to start listening"
+                        tvMode -> "40 random tracks. Press Select to play."
+                        else -> "A fresh mix from your library. Up to 40 tracks."
+                    }, color = Weazl.muted)
+                }
             }
         }
         item {
@@ -896,7 +1001,7 @@ fun LibraryView(
         Heading("Library")
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(listOf("Albums", "Artists", "Songs", "Favorites")) { s ->
-                FilterChip(
+                FocusFilterChip(
                     scope == s,
                     {
                         scope = s
@@ -907,17 +1012,17 @@ fun LibraryView(
                 )
             }
         }
-        Action("Downloads", Icons.Default.Download) { navigate("Downloads") }
+        if (!LocalTvMode.current) Action("Downloads", Icons.Default.Download) { navigate("Downloads") }
         Field("Filter library", query, { query = it })
         Row(verticalAlignment = Alignment.CenterVertically) {
-            FilterChip(
+            if (!LocalTvMode.current) FocusFilterChip(
                 saved,
                 { saved = !saved },
                 label = { Text("Available offline") },
                 shape = RectangleShape,
             )
             Spacer(Modifier.weight(1f))
-            TextButton({ sort = if (sort == "Name") "Newest" else "Name" }) { Text(sort) }
+            FocusTextButton({ sort = if (sort == "Name") "Newest" else "Name" }) { Text(sort) }
         }
         if (artist != null)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -930,7 +1035,7 @@ fun LibraryView(
                 ) {
                     repo.favorite("artist", artist!!.str("id"))
                 }
-                TextButton({ artist = null }) { Text("All artists") }
+                FocusTextButton({ artist = null }) { Text("All artists") }
             }
         val tracks by produceState<List<Track>>(emptyList(), c, query, scope, saved, rev, artist) {
             value = withContext(Dispatchers.Default) {
@@ -968,7 +1073,7 @@ fun LibraryView(
                 contentPadding = PaddingValues(bottom = 16.dp),
             ) {
                 items(albums) { a ->
-                    Column(Modifier.clickable { album(a) }) {
+                    Column(Modifier.tvFocusOutline().clickable { album(a) }) {
                         Art(a.str("coverId"), Modifier.fillMaxWidth().aspectRatio(1f))
                         Text(a.str("name"), maxLines = 2, fontSize = 14.sp)
                         Text(a.str("artist"), maxLines = 1, fontSize = 12.sp, color = Weazl.muted)
@@ -981,7 +1086,7 @@ fun LibraryView(
                     ListItem(
                         headlineContent = { Text(a.str("name")) },
                         supportingContent = { Text("${a.optInt("albumCount")} albums") },
-                        modifier = Modifier.clickable { artist = a },
+                        modifier = Modifier.tvFocusOutline().clickable { artist = a },
                         colors = ListItemDefaults.colors(containerColor = Weazl.background),
                     )
                 }
@@ -1045,7 +1150,7 @@ fun SearchView(
                     )
                 }
             items(artists) { artist ->
-                TextButton({ selectedArtist = artist }) { Text(artist.str("name")) }
+                FocusTextButton({ selectedArtist = artist }) { Text(artist.str("name")) }
             }
             item { if (albums.isNotEmpty()) AlbumShelf("Albums", albums, album) }
             if (playlists.isNotEmpty())
@@ -1056,7 +1161,7 @@ fun SearchView(
                         modifier = Modifier.padding(top = 12.dp),
                     )
                 }
-            items(playlists) { p -> TextButton({ playlist(p) }) { Text(p.str("name")) } }
+            items(playlists) { p -> FocusTextButton({ playlist(p) }) { Text(p.str("name")) } }
             if (query.isBlank()) item { Empty("Search your library, online or offline.") }
             else if (
                 results.isEmpty() && albums.isEmpty() && artists.isEmpty() && playlists.isEmpty()
@@ -1079,7 +1184,7 @@ fun SearchView(
                                 it.str("artist") == artist.str("name")
                         }
                     ) { a ->
-                        TextButton({
+                        FocusTextButton({
                             selectedArtist = null
                             album(a)
                         }) {
@@ -1089,14 +1194,14 @@ fun SearchView(
                 }
             },
             confirmButton = {
-                TextButton({ repo.favorite("artist", artist.str("id")) }) {
+                FocusTextButton({ repo.favorite("artist", artist.str("id")) }) {
                     Text(
                         if ("artist:${artist.str("id")}" in c.favorites) "Remove favorite"
                         else "Favorite artist"
                     )
                 }
             },
-            dismissButton = { TextButton({ selectedArtist = null }) { Text("Done") } },
+            dismissButton = { FocusTextButton({ selectedArtist = null }) { Text("Done") } },
         )
     }
 }
@@ -1123,7 +1228,7 @@ fun PlaylistsView(repo: Repository, open: (JSONObject) -> Unit) {
                 leadingContent = {
                     Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = Weazl.cyan)
                 },
-                modifier = Modifier.clickable { open(p) },
+                modifier = Modifier.tvFocusOutline().clickable { open(p) },
                 colors = ListItemDefaults.colors(containerColor = Weazl.background),
             )
         }
@@ -1147,8 +1252,8 @@ fun NameDialog(
         onDismissRequest = dismiss,
         title = { Text(title) },
         text = { Field("Name", name, change) },
-        confirmButton = { TextButton(save, enabled = name.isNotBlank()) { Text("Save") } },
-        dismissButton = { TextButton(dismiss) { Text("Cancel") } },
+        confirmButton = { FocusTextButton(save, enabled = name.isNotBlank()) { Text("Save") } },
+        dismissButton = { FocusTextButton(dismiss) { Text("Cancel") } },
     )
 }
 
@@ -1199,6 +1304,7 @@ fun CollectionView(
                     controller?.addMediaItems(tracks.map(MediaCatalog(repo)::track))
                 }
             }
+            if (!LocalTvMode.current) {
             Action("Download offline", Icons.Default.Download) { repo.saveTracks(tracks) }
             Text(
                 "${tracks.count { repo.savedTrack(it) != null }}/${tracks.size} available offline",
@@ -1206,6 +1312,7 @@ fun CollectionView(
                 fontSize = 12.sp,
             )
             downloads.size.let {}
+            }
         }
         if (kind == "Playlist" && current?.optBoolean("canEdit") == true)
             item {
@@ -1253,7 +1360,7 @@ fun Confirm(title: String, dismiss: () -> Unit, confirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text(title) },
-        confirmButton = { TextButton(confirm) { Text("Confirm") } },
-        dismissButton = { TextButton(dismiss) { Text("Cancel") } },
+        confirmButton = { FocusTextButton(confirm) { Text("Confirm") } },
+        dismissButton = { FocusTextButton(dismiss) { Text("Cancel") } },
     )
 }
